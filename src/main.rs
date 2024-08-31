@@ -1,5 +1,5 @@
-fn main(){
-    for line in std::io::stdin().lines(){
+fn main() {
+    for line in std::io::stdin().lines() {
         if let Ok(line) = line {
             let input: Vec<_> = line.split(" ").collect();
             let mut words = &input[..];
@@ -12,11 +12,11 @@ fn main(){
 enum Value<'src> {
     Num(i32),
     Op(&'src str),
-    Block(Vec<Value<'src>>)
+    Block(Vec<Value<'src>>),
 }
 
 impl<'src> Value<'src> {
-    fn as_num(&self) ->i32 {
+    fn as_num(&self) -> i32 {
         match self {
             Self::Num(val) => *val,
             _ => panic!("value is not a number"),
@@ -25,20 +25,17 @@ impl<'src> Value<'src> {
 
     fn to_block(self) -> Vec<Value<'src>> {
         match self {
-            Self::Block(val) =>  val,
+            Self::Block(val) => val,
             _ => panic!("value is not block"),
         }
     }
 }
 
-
-fn parse_block<'src, 'a>(
-        input: &'a [&'src str],
-    ) -> (Value<'src>, &'a[&'src str]) {
+fn parse_block<'src, 'a>(input: &'a [&'src str]) -> (Value<'src>, &'a [&'src str]) {
     let mut tokens = vec![];
     let mut words = input;
-    
-    while let Some((&word ,mut rest)) = words.split_first() {
+
+    while let Some((&word, mut rest)) = words.split_first() {
         if word.is_empty() {
             break;
         }
@@ -47,7 +44,7 @@ fn parse_block<'src, 'a>(
             (value, rest) = parse_block(rest);
             tokens.push(value);
         } else if word == "}" {
-            return (Value::Block(tokens),rest);
+            return (Value::Block(tokens), rest);
         } else if let Ok(value) = word.parse::<i32>() {
             tokens.push(Value::Num(value));
         } else {
@@ -55,13 +52,13 @@ fn parse_block<'src, 'a>(
         }
         words = rest;
     }
-    
+
     (Value::Block(tokens), words)
 }
 
-fn eval<'src>(code: Value<'src>, stack: &mut Vec<Value<'src>>){
+fn eval<'src>(code: Value<'src>, stack: &mut Vec<Value<'src>>) {
     match code {
-        Value::Op(op)=> match op {
+        Value::Op(op) => match op {
             "+" => add(stack),
             "-" => sub(stack),
             "*" => mul(stack),
@@ -73,16 +70,15 @@ fn eval<'src>(code: Value<'src>, stack: &mut Vec<Value<'src>>){
     }
 }
 
-fn parse_words<'src, 'a> (mut words:&'a [&'src str])-> Vec<Value<'src>>{
+fn parse_words<'src, 'a>(mut words: &'a [&'src str]) -> Vec<Value<'src>> {
     let mut stack = vec![];
-    while let Some((&word, mut rest)) = words.split_first(){
+    while let Some((&word, mut rest)) = words.split_first() {
         if word == "{" {
             let value;
             (value, rest) = parse_block(rest);
             stack.push(value);
-        }
-        else {
-            let code = if let Ok(parsed) = word.parse::<i32>(){
+        } else {
+            let code = if let Ok(parsed) = word.parse::<i32>() {
                 Value::Num(parsed)
             } else {
                 Value::Op(word)
@@ -95,30 +91,28 @@ fn parse_words<'src, 'a> (mut words:&'a [&'src str])-> Vec<Value<'src>>{
     return stack;
 }
 
-
-
 fn add(stack: &mut Vec<Value>) {
     let lhs = stack.pop().unwrap().as_num();
     let rhs = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(rhs+lhs));
+    stack.push(Value::Num(rhs + lhs));
 }
 
 fn mul(stack: &mut Vec<Value>) {
     let lhs = stack.pop().unwrap().as_num();
     let rhs = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(rhs*lhs));
+    stack.push(Value::Num(rhs * lhs));
 }
 
 fn sub(stack: &mut Vec<Value>) {
     let lhs = stack.pop().unwrap().as_num();
     let rhs = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(rhs-lhs));
+    stack.push(Value::Num(rhs - lhs));
 }
 
 fn div(stack: &mut Vec<Value>) {
     let lhs = stack.pop().unwrap().as_num();
     let rhs = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(rhs/lhs));
+    stack.push(Value::Num(rhs / lhs));
 }
 
 fn op_if(stack: &mut Vec<Value>) {
@@ -137,22 +131,22 @@ fn op_if(stack: &mut Vec<Value>) {
             eval(code, stack);
         }
     } else {
-        for code in false_branch { 
-            eval(code,stack);
+        for code in false_branch {
+            eval(code, stack);
         }
     }
 }
- 
+
 #[cfg(test)]
 mod test {
     use super::{parse_words, Value::*};
     #[test]
-    fn test_group(){
-        let test_string : Vec<_> = "1 2 + { 3 4 }".split(" ").collect();
-        let test_slice : &[&str] = &test_string[..];
+    fn test_group() {
+        let test_string: Vec<_> = "1 2 + { 3 4 }".split(" ").collect();
+        let test_slice: &[&str] = &test_string[..];
         assert_eq!(
             parse_words(test_slice),
             vec![Num(3), Block(vec![Num(3), Num(4)])]
-            );
+        );
     }
 }
