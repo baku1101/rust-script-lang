@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[[bin]]
+name = "stackmachine"
+path = "src/stackmachine.rs"
+
+[[bin]]
+name = "parser"
+path = "src/parser.rs"
