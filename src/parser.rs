@@ -1,47 +1,61 @@
 fn main() {
-    let input = "(123 world)";
+    let input = "(123 (tree)world)";
     println!("source: {:?}", source(input));
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Token {
-    Indent,
-    Number,
+#[derive(Debug, PartialEq)]
+enum Token<'src> {
+    Indent(&'src str),
+    Number(f64),
     LParen,
     RParen,
 }
 
-fn source(mut input: &str) -> Vec<Token> {
+#[derive(Debug, PartialEq)]
+enum TokenTree<'src> {
+    Token(Token<'src>),
+    Tree(Vec<TokenTree<'src>>),
+}
+
+fn source(mut input: &str) -> (&str, TokenTree) {
     let mut tokens = vec![];
     while !input.is_empty() {
-        input = if let (next_input, Some(token)) = token(input) {
-            tokens.push(token);
-            next_input
+        input = if let Some((next_input, token)) = token(input) {
+            match token {
+                Token::LParen => {
+                    let (next_input, tt) = source(next_input);
+                    tokens.push(tt);
+                    next_input
+                }
+                Token::RParen => {
+                    return (next_input, TokenTree::Tree(tokens));
+                }
+                _ => {
+                    tokens.push(TokenTree::Token(token));
+                    next_input
+                }
+            }
         } else {
             break;
         };
     }
-    tokens
+    (input, TokenTree::Tree(tokens))
 }
 
-fn token(i: &str) -> (&str, Option<Token>) {
-    if let (i, Some(ident_res)) = ident(whitespace(i)) {
-        return (i, Some(ident_res));
+fn token(i: &str) -> Option<(&str, Token)> {
+    if let Some(res) = ident(whitespace(i)) {
+        return Some(res);
     }
-
-    if let (i, Some(number_res)) = number(whitespace(i)) {
-        return (i, Some(number_res));
+    if let Some(res) = number(whitespace(i)) {
+        return Some(res);
     }
-
-    if let (i, Some(lparen_res)) = lparen(whitespace(i)) {
-        return (i, Some(lparen_res));
+    if let Some(res) = lparen(whitespace(i)) {
+        return Some(res);
     }
-
-    if let (i, Some(rparen_res)) = rparen(whitespace(i)) {
-        return (i, Some(rparen_res));
+    if let Some(res) = rparen(whitespace(i)) {
+        return Some(res);
     }
-
-    (i, None)
+    None
 }
 
 fn whitespace(mut input: &str) -> &str {
@@ -51,7 +65,8 @@ fn whitespace(mut input: &str) -> &str {
     input
 }
 
-fn number(mut input: &str) -> (&str, Option<Token>) {
+fn number(mut input: &str) -> Option<(&str, Token)> {
+    let start = input;
     if matches!(peek_char(input), Some(_x @ ('-' | '+' | '0'..='9'))) {
         if matches!(peek_char(input), Some(_x @ ('-' | '+'))) {
             input = advance_char(input);
@@ -59,41 +74,46 @@ fn number(mut input: &str) -> (&str, Option<Token>) {
         while matches!(peek_char(input), Some(_x @ ('.' | '0'..='9'))) {
             input = advance_char(input);
         }
-        (input, Some(Token::Number))
+        if let Ok(num) = start[..(start.len() - input.len())].parse::<f64>() {
+            Some((input, Token::Number(num)))
+        } else {
+            None
+        }
     } else {
-        (input, None)
+        None
     }
 }
 
-fn ident(mut input: &str) -> (&str, Option<Token>) {
+fn ident(mut input: &str) -> Option<(&str, Token)> {
+    let start = input;
     if matches!(peek_char(input), Some(_x @ ('a'..='z' | 'A'..='Z'))) {
         while matches!(
-            input.chars().next(),
+            peek_char(input),
             Some(_x @ ('a'..='z' | 'A'..='Z' | '0'..='9'))
         ) {
             input = advance_char(input);
         }
-        (input, Some(Token::Indent))
+        Some((input, Token::Indent(&start[..(start.len() - input.len())])))
     } else {
-        (input, None)
+        None
     }
 }
 
-fn lparen(mut input: &str) -> (&str, Option<Token>) {
+fn lparen(mut input: &str) -> Option<(&str, Token)> {
     if matches!(peek_char(input), Some('(')) {
         input = advance_char(input);
-        (input, Some(Token::LParen))
+        Some((input, Token::LParen))
     } else {
-        (input, None)
+        None
     }
 }
 
-fn rparen(mut input: &str) -> (&str, Option<Token>) {
+fn rparen(mut input: &str) -> Option<(&str, Token)> {
     if matches!(peek_char(input), Some(')')) {
         input = advance_char(input);
-        (input, Some(Token::RParen))
+        Some((input, Token::RParen))
     } else {
-        (input, None)
+        None
     }
 }
 
