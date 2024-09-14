@@ -1,0 +1,18 @@
+/fib { 0 1 fib_int } def
+
+/fib_int {
+  /n1 exch def
+  /n2 exch def
+  /num exch def
+  { num 1 < }
+  { n2 }
+  {
+    num 1 -
+    n1 0 +
+    n1 n2 +
+    fib_int
+  }
+  if
+} def
+
+10 fib puts
