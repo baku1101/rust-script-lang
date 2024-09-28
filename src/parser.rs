@@ -1,4 +1,5 @@
 #[derive(Debug, PartialEq)]
+
 enum Expression<'src> {
     Ident(&'src str),
     NumLiteral(f64),
