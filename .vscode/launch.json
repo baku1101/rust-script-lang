@@ -7,49 +7,11 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'stackmachine'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=stackmachine",
-                    "--package=rust-script-lang"
-                ],
-                "filter": {
-                    "name": "stackmachine",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'stackmachine'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=stackmachine",
-                    "--package=rust-script-lang"
-                ],
-                "filter": {
-                    "name": "stackmachine",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug executable 'parser'",
             "cargo": {
                 "args": [
                     "build",
                     "--bin=parser",
-                    "--package=rust-script-lang"
                 ],
                 "filter": {
                     "name": "parser",
@@ -57,28 +19,13 @@
                 }
             },
             "args": [
-                " < scripts/fn.rscl"
+                // " < scripts/fn.rscl"
             ],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "stdio": [
+                "scripts/early_return.rscl",
+                null
+            ]
         },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'parser'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=parser",
-                    "--package=rust-script-lang"
-                ],
-                "filter": {
-                    "name": "parser",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        }
     ]
 }
