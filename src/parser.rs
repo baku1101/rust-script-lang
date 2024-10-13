@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alpha1, alphanumeric1, char, multispace0},
-    combinator::recognize,
+    combinator::{opt, recognize},
     error::ParseError,
     multi::{fold_many0, many0},
     number::complete::recognize_float,
@@ -28,6 +28,9 @@ fn main() {
 
     let input = "1 + 2 * 3";
     println!("source: {:?}, parsed: {:?}", input, ex_eval(input));
+
+    let input = "sin(pi/2)";
+    println!("source: {:?}, parsed: {:?}", input, ex_eval(input));
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -38,6 +41,7 @@ enum Expression<'src> {
     Sub(Box<Expression<'src>>, Box<Expression<'src>>),
     Mul(Box<Expression<'src>>, Box<Expression<'src>>),
     Div(Box<Expression<'src>>, Box<Expression<'src>>),
+    FnInvoke(&'src str, Vec<Expression<'src>>),
 }
 
 fn eval(expr: Expression) -> f64 {
@@ -45,6 +49,19 @@ fn eval(expr: Expression) -> f64 {
         Expression::Ident("pi") => std::f64::consts::PI,
         Expression::Ident(id) => panic!("Unknown name {:?}", id),
         Expression::NumLiteral(n) => n,
+        Expression::FnInvoke("sqrt", args) => unary_fn(f64::sqrt)(args),
+        Expression::FnInvoke("sin", args) => unary_fn(f64::sin)(args),
+        Expression::FnInvoke("cos", args) => unary_fn(f64::cos)(args),
+        Expression::FnInvoke("tan", args) => unary_fn(f64::tan)(args),
+        Expression::FnInvoke("asin", args) => unary_fn(f64::asin)(args),
+        Expression::FnInvoke("acos", args) => unary_fn(f64::acos)(args),
+        Expression::FnInvoke("atan", args) => unary_fn(f64::atan)(args),
+        Expression::FnInvoke("atan2", args) => binary_fn(f64::atan2)(args),
+        Expression::FnInvoke("pow", args) => binary_fn(f64::powf)(args),
+        Expression::FnInvoke("exp", args) => unary_fn(f64::exp)(args),
+        Expression::FnInvoke("log", args) => binary_fn(f64::log)(args),
+        Expression::FnInvoke("log10", args) => unary_fn(f64::log10)(args),
+        Expression::FnInvoke(name, _) => panic!("invalid function name: {:?}", name),
         Expression::Add(lhs, rhs) => eval(*lhs) + eval(*rhs),
         Expression::Sub(lhs, rhs) => eval(*lhs) - eval(*rhs),
         Expression::Mul(lhs, rhs) => eval(*lhs) * eval(*rhs),
@@ -87,9 +104,18 @@ fn term(input: &str) -> IResult<&str, Expression> {
 }
 
 fn factor(input: &str) -> IResult<&str, Expression> {
-    alt((number, ident, parens))(input)
+    alt((number, func_call, ident, parens))(input)
 }
 
+fn func_call(input: &str) -> IResult<&str, Expression> {
+    let (i, ident) = space_delimited(identifier)(input)?;
+    let (i, args) = space_delimited(delimited(
+        tag("("),
+        many0(delimited(multispace0, expr, opt(tag(",")))),
+        tag(")"),
+    ))(i)?;
+    Ok((i, Expression::FnInvoke(ident, args)))
+}
 fn parens(input: &str) -> IResult<&str, Expression> {
     delimited(tag("("), expr, tag(")"))(input)
 }
@@ -126,4 +152,23 @@ where
     E: ParseError<&'src str>,
 {
     delimited(multispace0, f, multispace0)
+}
+
+fn unary_fn(f: fn(f64) -> f64) -> impl Fn(Vec<Expression>) -> f64 {
+    move |args| {
+        f(eval(
+            args.into_iter()
+                .next()
+                .expect("unary function should have one argument"),
+        ))
+    }
+}
+
+fn binary_fn(f: fn(f64, f64) -> f64) -> impl Fn(Vec<Expression>) -> f64 {
+    move |args| {
+        let mut args = args.into_iter();
+        let lhs = eval(args.next().expect("function missing first argument"));
+        let rhs = eval(args.next().expect("function missing second argument"));
+        f(lhs, rhs)
+    }
 }
