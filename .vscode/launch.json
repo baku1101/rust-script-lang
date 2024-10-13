@@ -1,0 +1,84 @@
+{
+    // IntelliSense を使用して利用可能な属性を学べます。
+    // 既存の属性の説明をホバーして表示します。
+    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'stackmachine'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=stackmachine",
+                    "--package=rust-script-lang"
+                ],
+                "filter": {
+                    "name": "stackmachine",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'stackmachine'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=stackmachine",
+                    "--package=rust-script-lang"
+                ],
+                "filter": {
+                    "name": "stackmachine",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'parser'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=parser",
+                    "--package=rust-script-lang"
+                ],
+                "filter": {
+                    "name": "parser",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                " < scripts/fn.rscl"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'parser'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=parser",
+                    "--package=rust-script-lang"
+                ],
+                "filter": {
+                    "name": "parser",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
