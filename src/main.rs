@@ -13,7 +13,6 @@ fn main() {
             return;
         }
     };
-    println!("parsed_statements: {:?}", parsed_statements);
     let mut frame = StackFrame::new();
     eval_statements(&parsed_statements, &mut frame);
 }

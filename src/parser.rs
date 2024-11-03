@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, ops::ControlFlow};
+use std::{collections::HashMap, ops::ControlFlow, vec};
 
 use nom::{
     branch::alt,
@@ -25,7 +25,7 @@ pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'s
             Statement::Expression(expr) => {
                 result = EvalResult::Continue(eval(expr, frame)?);
             }
-            Statement::VarDef(name, expr) => {
+            Statement::VarDef(name, _, expr) => {
                 let value = eval(expr, frame)?;
                 frame.vars.insert(name.to_string(), value);
             }
@@ -62,11 +62,17 @@ pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'s
                     }
                 }
             }
-            Statement::FnDef { name, args, stmts } => {
+            Statement::FnDef {
+                name,
+                args,
+                ret_type,
+                stmts,
+            } => {
                 frame.funcs.insert(
                     name.to_string(),
                     FnDef::User(UserFn {
                         args: args.clone(),
+                        ret_type: ret_type.clone(),
                         stmts: stmts.clone(),
                     }),
                 );
@@ -81,9 +87,9 @@ pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'s
     result
 }
 
-enum FnDef<'src> {
+pub enum FnDef<'src> {
     User(UserFn<'src>),
-    Native(NativeFn),
+    Native(NativeFn<'src>),
 }
 
 impl<'src> FnDef<'src> {
@@ -95,7 +101,7 @@ impl<'src> FnDef<'src> {
                     .args
                     .iter()
                     .zip(args.iter())
-                    .map(|(arg, val)| (arg.to_string(), val.clone()))
+                    .map(|(arg, val)| (arg.0.to_string(), val.clone()))
                     .collect();
                 match eval_statements(&user_fn.stmts, &mut new_frame) {
                     EvalResult::Continue(val) | EvalResult::Break(BreakResult::Return(val)) => val,
@@ -109,11 +115,14 @@ impl<'src> FnDef<'src> {
 }
 
 struct UserFn<'src> {
-    args: Vec<&'src str>,
+    args: Vec<(&'src str, TypeDecl)>,
+    ret_type: TypeDecl,
     stmts: Statements<'src>,
 }
 
-struct NativeFn {
+struct NativeFn<'src> {
+    args: Vec<(&'src str, TypeDecl)>,
+    ret_type: TypeDecl,
     code: Box<dyn Fn(&[Value]) -> Value>,
 }
 
@@ -145,18 +154,24 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "print".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::I64,
                 code: Box::new(print),
             }),
         );
         funcs.insert(
             "dbg".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::I64,
                 code: Box::new(p_dbg),
             }),
         );
         funcs.insert(
             "i64".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::I64,
                 code: Box::new(|args| {
                     Value::I64(coerce_i64(
                         args.first().expect("functions missing argument"),
@@ -167,6 +182,8 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "f64".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::F64,
                 code: Box::new(|args| {
                     Value::F64(coerce_f64(
                         args.first().expect("functions missing argument"),
@@ -177,6 +194,8 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "str".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::Str,
                 code: Box::new(|args| {
                     Value::Str(coerce_str(
                         args.first().expect("functions missing argument"),
@@ -227,6 +246,14 @@ pub enum Value {
     F64(f64),
     I64(i64),
     Str(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeDecl {
+    Any,
+    F64,
+    I64,
+    Str,
 }
 
 impl Value {
@@ -368,7 +395,7 @@ pub enum Expression<'src> {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement<'src> {
     Expression(Expression<'src>),
-    VarDef(&'src str, Expression<'src>),
+    VarDef(&'src str, TypeDecl, Expression<'src>),
     VarAssign(&'src str, Expression<'src>),
     For {
         loop_var: &'src str,
@@ -378,7 +405,8 @@ pub enum Statement<'src> {
     },
     FnDef {
         name: &'src str,
-        args: Vec<&'src str>,
+        args: Vec<(&'src str, TypeDecl)>,
+        ret_type: TypeDecl,
         stmts: Statements<'src>,
     },
     Return(Expression<'src>),
@@ -481,26 +509,45 @@ fn for_statement(i: &str) -> IResult<&str, Statement> {
     ))
 }
 
+fn argument(i: &str) -> IResult<&str, (&str, TypeDecl)> {
+    let (i, name) = space_delimited(identifier)(i)?;
+    let (i, _) = space_delimited(char(':'))(i)?;
+    let (i, td) = type_decl(i)?;
+    Ok((i, (name, td)))
+}
+
 fn fn_def_statement(i: &str) -> IResult<&str, Statement> {
     let (i, _) = space_delimited(tag("fn"))(i)?;
     let (i, name) = space_delimited(identifier)(i)?;
     let (i, args) = delimited(
         tag("("),
-        separated_list0(tag(","), space_delimited(identifier)),
+        separated_list0(tag(","), space_delimited(argument)),
         tag(")"),
     )(i)?;
+    let (i, _) = space_delimited(tag("->"))(i)?;
+    let (i, ret_type) = type_decl(i)?;
     let (i, stmts) = delimited(open_brace, statements, close_brace)(i)?;
     println!("fn_def_statement: {:?}", i);
-    Ok((i, Statement::FnDef { name, args, stmts }))
+    Ok((
+        i,
+        Statement::FnDef {
+            name,
+            args,
+            ret_type,
+            stmts,
+        },
+    ))
 }
 
 fn var_def(i: &str) -> IResult<&str, Statement> {
     let (i, _) = space_delimited(tag("var"))(i)?;
     let (i, name) = space_delimited(identifier)(i)?;
+    let (i, _) = space_delimited(char(':'))(i)?;
+    let (i, td) = type_decl(i)?;
     let (i, _) = space_delimited(tag("="))(i)?;
     let (i, expr) = space_delimited(expr)(i)?;
     let (i, _) = space_delimited(tag(";"))(i)?;
-    Ok((i, Statement::VarDef(name, expr)))
+    Ok((i, Statement::VarDef(name, td, expr)))
 }
 
 fn var_assign(i: &str) -> IResult<&str, Statement> {
@@ -625,6 +672,19 @@ fn parens(input: &str) -> IResult<&str, Expression> {
     delimited(tag("("), expr, tag(")"))(input)
 }
 
+fn type_decl(i: &str) -> IResult<&str, TypeDecl> {
+    let (i, td) = space_delimited(identifier)(i)?;
+    Ok((
+        i,
+        match td {
+            "f64" => TypeDecl::F64,
+            "i64" => TypeDecl::I64,
+            "str" => TypeDecl::Str,
+            _ => panic!("Unknown type declaration: {:?}", td),
+        },
+    ))
+}
+
 fn number_literal(i: &str) -> IResult<&str, Expression> {
     let (r, v) = space_delimited(recognize_float)(i)?;
     Ok((
@@ -676,6 +736,8 @@ where
 
 fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
     FnDef::Native(NativeFn {
+        args: vec![("arg", TypeDecl::F64)],
+        ret_type: TypeDecl::F64,
         code: Box::new(move |args| {
             Value::F64(f(coerce_f64(
                 args.into_iter().next().expect("functions missing argument"),
@@ -686,6 +748,8 @@ fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
 
 fn binary_fn<'a>(f: fn(f64, f64) -> f64) -> FnDef<'a> {
     FnDef::Native(NativeFn {
+        args: vec![("lhs", TypeDecl::F64), ("rhs", TypeDecl::F64)],
+        ret_type: TypeDecl::F64,
         code: Box::new(move |args| {
             let mut args = args.into_iter();
             let lhs = args.next().expect("function missing first argument");
