@@ -1,15 +1,15 @@
-use std::{collections::HashMap, io::Read, ops::ControlFlow};
+use std::{collections::HashMap, ops::ControlFlow};
 
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, alphanumeric1, char, multispace0, none_of},
+    character::complete::{alpha1, alphanumeric1, char, multispace0, multispace1, none_of},
     combinator::{opt, recognize},
     error::ParseError,
     multi::{fold_many0, many0, separated_list0},
     number::complete::recognize_float,
     sequence::{delimited, pair, preceded, terminated},
-    Finish, IResult, Parser,
+    IResult, Parser,
 };
 
 fn space_delimited<'src, O, E>(
@@ -22,9 +22,9 @@ where
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Statement<'src> {
+pub enum Statement<'src> {
     Expression(Expression<'src>),
-    VarDef(&'src str, Expression<'src>),
+    VarDef(&'src str, TypeDecl, Expression<'src>),
     VarAssign(&'src str, Expression<'src>),
     Return(Expression<'src>),
     Break,
@@ -37,13 +37,22 @@ enum Statement<'src> {
     },
     FnDef {
         name: &'src str,
-        args: Vec<&'src str>,
+        args: Vec<(&'src str, TypeDecl)>,
+        ret_type: TypeDecl,
         stmts: Statements<'src>,
     },
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TypeDecl {
+    Any,
+    F64,
+    I64,
+    Str,
+}
+
 #[derive(Debug, Clone, PartialEq)]
-enum Value {
+pub enum Value {
     F64(f64),
     I64(i64),
     Str(String),
@@ -166,7 +175,7 @@ impl std::ops::Div for Value {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Expression<'src> {
+pub enum Expression<'src> {
     Ident(&'src str),
     If(
         Box<Expression<'src>>,
@@ -188,17 +197,20 @@ enum Expression<'src> {
     FnInvoke(&'src str, Vec<Expression<'src>>),
 }
 
-enum FnDef<'src> {
+pub enum FnDef<'src> {
     User(UserFn<'src>),
-    Native(NativeFn),
+    Native(NativeFn<'src>),
 }
 
 struct UserFn<'src> {
-    args: Vec<&'src str>,
+    args: Vec<(&'src str, TypeDecl)>,
+    ret_type: TypeDecl,
     stmts: Statements<'src>,
 }
 
-struct NativeFn {
+struct NativeFn<'src> {
+    args: Vec<(&'src str, TypeDecl)>,
+    ret_type: TypeDecl,
     code: Box<dyn Fn(&[Value]) -> Value>,
 }
 
@@ -215,7 +227,7 @@ impl<'src> FnDef<'src> {
                     .args
                     .iter()
                     .zip(args)
-                    .map(|(name, value)| (name.to_string(), value.to_owned()))
+                    .map(|(name, value)| (name.0.to_string(), value.to_owned()))
                     .collect::<Variables>();
                 match eval_statements(&user_fn.stmts, &mut new_frame) {
                     EvalResult::Continue(val) | EvalResult::Break(BreakResult::Return(val)) => val,
@@ -226,6 +238,20 @@ impl<'src> FnDef<'src> {
             FnDef::Native(native_fn) => (native_fn.code)(args),
         }
     }
+
+    fn args(&self) -> &Vec<(&'src str, TypeDecl)> {
+        match self {
+            Self::User(user) => &user.args,
+            Self::Native(code) => &code.args,
+        }
+    }
+
+    fn ret_type(&self) -> &TypeDecl {
+        match self {
+            Self::User(user) => &user.ret_type,
+            Self::Native(native) => &native.ret_type,
+        }
+    }
 }
 
 type Variables = HashMap<String, Value>;
@@ -234,20 +260,20 @@ type Statements<'a> = Vec<Statement<'a>>;
 type EvalResult = ControlFlow<BreakResult, Value>;
 
 #[derive(Debug)]
-enum BreakResult {
+pub enum BreakResult {
     Return(Value),
     Break,
     Continue,
 }
 
-struct StackFrame<'src> {
+pub struct StackFrame<'src> {
     vars: Variables,
     funcs: Functions<'src>,
     uplevel: Option<&'src StackFrame<'src>>,
 }
 
 impl<'src> StackFrame<'src> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut funcs = Functions::new();
         funcs.insert("sqrt".to_string(), unary_fn(f64::sqrt));
         funcs.insert("sqrt".to_string(), unary_fn(f64::sqrt));
@@ -265,24 +291,32 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "print".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::Any,
                 code: Box::new(print),
             }),
         );
         funcs.insert(
             "puts".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::Any,
                 code: Box::new(puts_fn),
             }),
         );
         funcs.insert(
             "dbg".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::Any,
                 code: Box::new(p_dbg),
             }),
         );
         funcs.insert(
             "i64".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::I64,
                 code: Box::new(move |args| {
                     Value::I64(coerce_i64(args.first().expect("function missing argument")))
                 }),
@@ -291,6 +325,8 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "f64".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::F64,
                 code: Box::new(move |args| {
                     Value::F64(coerce_f64(args.first().expect("function missing argument")))
                 }),
@@ -299,6 +335,8 @@ impl<'src> StackFrame<'src> {
         funcs.insert(
             "str".to_string(),
             FnDef::Native(NativeFn {
+                args: vec![("arg", TypeDecl::Any)],
+                ret_type: TypeDecl::Str,
                 code: Box::new(move |args| {
                     Value::Str(coerce_str(args.first().expect("function missing argument")))
                 }),
@@ -317,7 +355,7 @@ impl<'src> StackFrame<'src> {
     }
 }
 
-fn statements(i: &str) -> IResult<&str, Statements> {
+pub fn statements(i: &str) -> IResult<&str, Statements> {
     let (i, stmts) = many0(statement)(i)?;
     Ok((i, stmts))
 }
@@ -354,13 +392,21 @@ fn return_statement(i: &str) -> IResult<&str, Statement> {
 fn fn_def_statement(i: &str) -> IResult<&str, Statement> {
     let (i, _) = space_delimited(tag("fn"))(i)?;
     let (i, name) = space_delimited(identifier)(i)?;
-    let (i, args) = delimited(
-        tag("("),
-        separated_list0(tag(","), space_delimited(identifier)),
-        tag(")"),
-    )(i)?;
+    let (i, _) = space_delimited(tag("("))(i)?;
+    let (i, args) = separated_list0(char(','), space_delimited(argument))(i)?;
+    let (i, _) = space_delimited(tag(")"))(i)?;
+    let (i, _) = space_delimited(tag("->"))(i)?;
+    let (i, ret_type) = type_decl(i)?;
     let (i, stmts) = delimited(open_brace, statements, close_brace)(i)?;
-    Ok((i, Statement::FnDef { name, args, stmts }))
+    Ok((
+        i,
+        Statement::FnDef {
+            name,
+            args,
+            ret_type,
+            stmts,
+        },
+    ))
 }
 
 fn for_statement(i: &str) -> IResult<&str, Statement> {
@@ -382,13 +428,38 @@ fn for_statement(i: &str) -> IResult<&str, Statement> {
     ))
 }
 
+fn type_decl(i: &str) -> IResult<&str, TypeDecl> {
+    let (i, td) = space_delimited(identifier)(i)?;
+    Ok((
+        i,
+        match td {
+            "i64" => TypeDecl::I64,
+            "f64" => TypeDecl::F64,
+            "str" => TypeDecl::Str,
+            _ => {
+                panic!("Type annotation has unknown type: {td}")
+            }
+        },
+    ))
+}
+
+fn argument(i: &str) -> IResult<&str, (&str, TypeDecl)> {
+    let (i, ident) = space_delimited(identifier)(i)?;
+    let (i, _) = char(':')(i)?;
+    let (i, td) = type_decl(i)?;
+
+    Ok((i, (ident, td)))
+}
+
 fn var_def(i: &str) -> IResult<&str, Statement> {
-    let (i, _) = space_delimited(tag("var"))(i)?;
+    let (i, _) = delimited(multispace0, tag("var"), multispace1)(i)?;
     let (i, name) = space_delimited(identifier)(i)?;
-    let (i, _) = space_delimited(tag("="))(i)?;
+    let (i, _) = space_delimited(char(':'))(i)?;
+    let (i, td) = type_decl(i)?;
+    let (i, _) = space_delimited(char('='))(i)?;
     let (i, expr) = space_delimited(expr)(i)?;
-    let (i, _) = space_delimited(tag(";"))(i)?;
-    Ok((i, Statement::VarDef(name, expr)))
+    let (i, _) = space_delimited(char(';'))(i)?;
+    Ok((i, Statement::VarDef(name, td, expr)))
 }
 
 fn var_assign(i: &str) -> IResult<&str, Statement> {
@@ -458,6 +529,8 @@ fn eval<'a>(expr: &Expression<'a>, frame: &mut StackFrame<'a>) -> EvalResult {
 
 fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
     FnDef::Native(NativeFn {
+        args: vec![("lhs", TypeDecl::F64), ("rhs", TypeDecl::F64)],
+        ret_type: TypeDecl::F64,
         code: Box::new(move |args| {
             Value::F64(f(coerce_f64(
                 args.into_iter().next().expect("function missing argument"),
@@ -467,6 +540,8 @@ fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
 }
 fn binary_fn<'a>(f: fn(f64, f64) -> f64) -> FnDef<'a> {
     FnDef::Native(NativeFn {
+        args: vec![("lhs", TypeDecl::F64), ("rhs", TypeDecl::F64)],
+        ret_type: TypeDecl::F64,
         code: Box::new(move |args| {
             let mut args = args.into_iter();
             let lhs = coerce_f64(args.next().expect("function missing the first argument"));
@@ -623,7 +698,7 @@ fn func_call(input: &str) -> IResult<&str, Expression> {
     Ok((r, Expression::FnInvoke(ident, args)))
 }
 
-fn eval_statements<'short, 'long: 'short>(
+pub fn eval_statements<'short, 'long: 'short>(
     statements: &[Statement<'long>],
     frame: &mut StackFrame<'short>,
 ) -> EvalResult {
@@ -633,7 +708,7 @@ fn eval_statements<'short, 'long: 'short>(
             Statement::Expression(expr) => {
                 last = EvalResult::Continue(eval(expr, frame)?);
             }
-            Statement::VarDef(name, expr) => {
+            Statement::VarDef(name, _, expr) => {
                 let eval_res = eval(expr, frame)?;
                 frame.vars.insert(name.to_string(), eval_res);
             }
@@ -667,11 +742,17 @@ fn eval_statements<'short, 'long: 'short>(
                     }
                 }
             }
-            Statement::FnDef { name, args, stmts } => {
+            Statement::FnDef {
+                name,
+                args,
+                ret_type,
+                stmts,
+            } => {
                 frame.funcs.insert(
                     name.to_string(),
                     FnDef::User(UserFn {
                         args: args.to_vec(),
+                        ret_type: *ret_type,
                         stmts: stmts.to_vec(),
                     }),
                 );
@@ -701,22 +782,6 @@ fn puts_fn(args: &[Value]) -> Value {
 fn p_dbg(values: &[Value]) -> Value {
     println!("dbg: {:?}", values[0]);
     Value::I64(0)
-}
-
-fn main() {
-    let mut buf = String::new();
-    if std::io::stdin().read_to_string(&mut buf).is_ok() {
-        let parsed_statements = match statements(&buf).finish() {
-            Ok((_, parsed_statements)) => parsed_statements,
-            Err(e) => {
-                eprintln!("Parse error: {e:?}");
-                return;
-            }
-        };
-
-        let mut frame = StackFrame::new();
-        eval_statements(&parsed_statements, &mut frame);
-    }
 }
 
 #[cfg(test)]
