@@ -1,5 +1,9 @@
 use core::panic;
-use rust_script_lang::parser::{eval_statements, statements_finish, StackFrame};
+use rust_script_lang::{
+    parser::statements_finish,
+    vm::{eval_statements, StackFrame},
+};
+
 use std::io::Read;
 fn main() {
     let mut buf = String::new();

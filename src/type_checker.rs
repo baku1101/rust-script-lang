@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::parser::{Expression, FnDef, TypeDecl};
+use crate::ast::{Expression, TypeDecl};
+use crate::vm::FnDef;
 
 // fn tc_expr<'src>(
 //     e: &Expression<'src>,
