@@ -5,11 +5,3 @@ edition = "2021"
 
 [dependencies]
 nom = "7.1.3"
-
-[[bin]]
-name = "stackmachine"
-path = "src/stackmachine.rs"
-
-[[bin]]
-name = "parser"
-path = "src/parser.rs"

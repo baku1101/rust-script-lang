@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, io::Read, ops::ControlFlow};
+use std::{collections::HashMap, ops::ControlFlow};
 
 use nom::{
     branch::alt,
@@ -13,29 +13,12 @@ use nom::{
     Finish, IResult, Parser,
 };
 
-fn main() {
-    let mut buf = String::new();
-    if !std::io::stdin().read_to_string(&mut buf).is_ok() {
-        panic!("Failed to read stdin");
-    }
-    let parsed_statements = match statements_finish(&buf) {
-        Ok(parsed_statements) => parsed_statements,
-        Err(e) => {
-            eprintln!("Parsed error: {:?}", e);
-            return;
-        }
-    };
-    println!("parsed_statements: {:?}", parsed_statements);
-    let mut frame = StackFrame::new();
-    eval_statements(&parsed_statements, &mut frame);
-}
-
-fn statements_finish(i: &str) -> Result<Statements, nom::error::Error<&str>> {
+pub fn statements_finish(i: &str) -> Result<Statements, nom::error::Error<&str>> {
     let (_, res) = statements(i).finish()?;
     Ok(res)
 }
 
-fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'src>) -> EvalResult {
+pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'src>) -> EvalResult {
     let mut result = EvalResult::Continue(Value::I64(0));
     for stmt in stmts {
         match stmt {
@@ -138,14 +121,14 @@ type Variables = HashMap<String, Value>;
 type Functions<'src> = HashMap<String, FnDef<'src>>;
 
 #[derive(Default)]
-struct StackFrame<'src> {
+pub struct StackFrame<'src> {
     vars: Variables,
     funcs: Functions<'src>,
     uplevel: Option<&'src StackFrame<'src>>,
 }
 
 impl<'src> StackFrame<'src> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut funcs = HashMap::new();
         funcs.insert("sqrt".to_string(), unary_fn(f64::sqrt));
         funcs.insert("sin".to_string(), unary_fn(f64::sin));
@@ -240,7 +223,7 @@ fn p_dbg(args: &[Value]) -> Value {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Value {
+pub enum Value {
     F64(f64),
     I64(i64),
     Str(String),
@@ -364,7 +347,7 @@ impl std::ops::Div for Value {
 type Statements<'a> = Vec<Statement<'a>>;
 
 #[derive(Debug, PartialEq, Clone)]
-enum Expression<'src> {
+pub enum Expression<'src> {
     Ident(&'src str),
     NumLiteral(f64),
     StrLiteral(String),
@@ -383,7 +366,7 @@ enum Expression<'src> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Statement<'src> {
+pub enum Statement<'src> {
     Expression(Expression<'src>),
     VarDef(&'src str, Expression<'src>),
     VarAssign(&'src str, Expression<'src>),
@@ -404,7 +387,7 @@ enum Statement<'src> {
 }
 
 #[derive(Debug)]
-enum BreakResult {
+pub enum BreakResult {
     Return(Value),
     Break,
     Continue,
