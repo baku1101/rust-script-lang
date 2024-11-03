@@ -34,16 +34,16 @@ impl<'src> FnDef<'src> {
     }
 }
 
-struct UserFn<'src> {
+pub struct UserFn<'src> {
     args: Vec<(&'src str, TypeDecl)>,
     ret_type: TypeDecl,
     stmts: Statements<'src>,
 }
 
-struct NativeFn<'src> {
+pub struct NativeFn<'src> {
     args: Vec<(&'src str, TypeDecl)>,
     ret_type: TypeDecl,
-    code: Box<dyn Fn(&[Value]) -> Value>,
+    pub(crate) code: Box<dyn Fn(&[Value]) -> Value>,
 }
 
 fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
