@@ -1,0 +1,8 @@
+fn addsub( a , b) {
+  fn sub(a,b) {
+    a-b;
+  }
+  a+sub(a,b);
+}
+
+print(addsub(2,1));
