@@ -1,5 +1,6 @@
 use nom::Finish;
-use rust_script_lang::parser::{eval_statements, statements, StackFrame};
+use rust_script_lang::evaluator::{eval_statements, StackFrame};
+use rust_script_lang::parser::statements;
 use std::io::Read;
 
 fn main() {

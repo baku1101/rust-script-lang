@@ -1,4 +1,5 @@
-use crate::parser::{Expression, FnDef, TypeDecl};
+use crate::ast::{Expression, TypeDecl};
+use crate::evaluator::FnDef;
 use std::collections::HashMap;
 
 fn tc_coerce_type<'src>(value: &TypeDecl, target: &TypeDecl) -> Result<TypeDecl, TypeCheckError> {
