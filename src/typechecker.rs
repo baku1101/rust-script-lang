@@ -1,5 +1,5 @@
-use crate::ast::{Expression, TypeDecl};
-use crate::evaluator::FnDef;
+use crate::ast::{Expression, Statement, TypeDecl};
+use crate::evaluator::{FnDef, UserFn};
 use std::collections::HashMap;
 
 fn tc_coerce_type<'src>(value: &TypeDecl, target: &TypeDecl) -> Result<TypeDecl, TypeCheckError> {
@@ -20,14 +20,14 @@ fn tc_coerce_type<'src>(value: &TypeDecl, target: &TypeDecl) -> Result<TypeDecl,
     })
 }
 
-struct TypeCheckContext<'src> {
+pub struct TypeCheckContext<'src> {
     vars: HashMap<&'src str, TypeDecl>,
     funcs: HashMap<String, FnDef<'src>>,
     super_context: Option<&'src TypeCheckContext<'src>>,
 }
 
 impl<'src> TypeCheckContext<'src> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             vars: HashMap::new(),
             funcs: HashMap::new(),
@@ -35,7 +35,7 @@ impl<'src> TypeCheckContext<'src> {
         }
     }
 
-    fn get_var(&self, name: &str) -> Option<TypeDecl> {
+    pub fn get_var(&self, name: &str) -> Option<TypeDecl> {
         if let Some(val) = self.vars.get(name) {
             Some(val.clone())
         } else {
@@ -43,7 +43,7 @@ impl<'src> TypeCheckContext<'src> {
         }
     }
 
-    fn get_fn(&self, name: &str) -> Option<&FnDef<'src>> {
+    pub fn get_fn(&self, name: &str) -> Option<&FnDef<'src>> {
         if let Some(val) = self.funcs.get(name) {
             Some(val)
         } else if let Some(super_ctx) = self.super_context {
@@ -55,7 +55,7 @@ impl<'src> TypeCheckContext<'src> {
 }
 
 #[derive(Debug)]
-struct TypeCheckError {
+pub struct TypeCheckError {
     msg: String,
 }
 
@@ -66,13 +66,75 @@ impl<'src> std::fmt::Display for TypeCheckError {
 }
 
 impl TypeCheckError {
-    fn new(msg: String) -> Self {
+    pub fn new(msg: String) -> Self {
         Self { msg }
     }
 }
 
-fn tc_expr<'src, 'b>(
-    e: &'b Expression<'src>,
+pub fn type_check<'src>(
+    stmts: &Vec<Statement<'src>>,
+    ctx: &mut TypeCheckContext<'src>,
+) -> Result<TypeDecl, TypeCheckError> {
+    let mut res_ty = TypeDecl::Any;
+    for stmt in stmts {
+        res_ty = match stmt {
+            Statement::VarDef(var, def_type, expression) => {
+                let expr_ty = tc_expr(expression, ctx)?;
+                let coerced_ty = tc_coerce_type(&expr_ty, def_type)?;
+                ctx.vars.insert(var, coerced_ty.clone());
+                TypeDecl::Any
+            }
+            Statement::VarAssign(var, expression) => {
+                let expr_ty = tc_expr(expression, ctx)?;
+                let var_ty = ctx
+                    .get_var(var)
+                    .ok_or_else(|| TypeCheckError::new(format!("{:?} not found in scope", var)))?;
+                tc_coerce_type(&expr_ty, &var_ty)?;
+                TypeDecl::Any
+            }
+            Statement::Expression(expr) => tc_expr(expr, ctx)?,
+            Statement::FnDef {
+                name,
+                args,
+                ret_type,
+                stmts,
+            } => {
+                let mut fn_ctx = TypeCheckContext {
+                    vars: HashMap::new(),
+                    funcs: HashMap::new(),
+                    super_context: Some(ctx),
+                };
+                for (arg_name, arg_ty) in args {
+                    fn_ctx.vars.insert(arg_name, arg_ty.clone());
+                }
+                let ret_ty = type_check(stmts, &mut fn_ctx)?;
+                tc_coerce_type(&ret_ty, ret_type)?;
+                ctx.funcs.insert(
+                    name.to_string(),
+                    FnDef::User(UserFn::new(args.clone(), ret_type.clone(), stmts.clone())),
+                );
+                TypeDecl::Any
+            }
+            Statement::For {
+                loop_var,
+                start,
+                end,
+                stmts,
+            } => {
+                let _ = tc_coerce_type(&tc_expr(start, ctx)?, &TypeDecl::I64);
+                let _ = tc_coerce_type(&tc_expr(end, ctx)?, &TypeDecl::I64);
+                ctx.vars.insert(loop_var, TypeDecl::I64);
+                type_check(stmts, ctx)?
+            }
+            Statement::Return(expr) => return Ok(tc_expr(expr, ctx)?),
+            Statement::Break | Statement::Continue => TypeDecl::Any,
+        }
+    }
+    Ok(res_ty)
+}
+
+fn tc_expr<'src>(
+    e: &Expression<'src>,
     ctx: &mut TypeCheckContext<'src>,
 ) -> Result<TypeDecl, TypeCheckError> {
     use Expression::*;
@@ -81,7 +143,99 @@ fn tc_expr<'src, 'b>(
         Str(_val) => TypeDecl::Str,
         Ident(str) => ctx
             .get_var(str)
-            .ok_or_else(|| TypeCheckError::new(format!("Variable {} not found in scope", str)))?,
+            .ok_or_else(|| TypeCheckError::new(format!("{:?} not found in scope", str)))?,
+        FnInvoke(str, args) => {
+            let args_ty = args
+                .iter()
+                .map(|v| tc_expr(v, ctx))
+                .collect::<Result<Vec<_>, _>>()?;
+            let func = ctx
+                .get_fn(*str)
+                .ok_or_else(|| TypeCheckError::new(format!("Function {:?} is not defined", str)))?;
+            let args_decl = func.args();
+            for (arg_ty, decl) in args_ty.iter().zip(args_decl.iter()) {
+                tc_coerce_type(arg_ty, &decl.1)?;
+            }
+            func.ret_type().clone()
+        }
+        Add(lhs, rhs) => tc_binary_op(&lhs, &rhs, ctx, "Add")?,
+        Sub(lhs, rhs) => tc_binary_op(&lhs, &rhs, ctx, "Sub")?,
+        Mul(lhs, rhs) => tc_binary_op(&lhs, &rhs, ctx, "Mul")?,
+        Div(lhs, rhs) => tc_binary_op(&lhs, &rhs, ctx, "Div")?,
+        Eq(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Eq")?,
+        Ne(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Ne")?,
+        Gt(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Gt")?,
+        Gte(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Gte")?,
+        Lt(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Lt")?,
+        Lte(lhs, rhs) => tc_binary_cmp(&lhs, &rhs, ctx, "Lte")?,
+        If(cond, then, els) => {
+            tc_coerce_type(&tc_expr(cond, ctx)?, &TypeDecl::I64)?;
+            let then_ty = type_check(then, ctx)?;
+            if let Some(els_ty) = els {
+                let els_ty = type_check(els_ty, ctx)?;
+                tc_coerce_type(&then_ty, &els_ty)?
+            } else {
+                then_ty
+            }
+        }
         _ => todo!(),
+    })
+}
+
+fn tc_binary_op<'src>(
+    lhs: &Expression<'src>,
+    rhs: &Expression<'src>,
+    ctx: &mut TypeCheckContext<'src>,
+    op: &str,
+) -> Result<TypeDecl, TypeCheckError> {
+    let lhs_ty = tc_expr(lhs, ctx)?;
+    let rhs_ty = tc_expr(rhs, ctx)?;
+    binary_op_type(&lhs_ty, &rhs_ty).map_err(|_e| {
+        TypeCheckError::new(format!(
+            "Operation {op} between incompatible type: {:?} and {:?}",
+            lhs_ty, rhs_ty
+        ))
+    })
+}
+
+fn binary_op_type(lhs: &TypeDecl, rhs: &TypeDecl) -> Result<TypeDecl, ()> {
+    use TypeDecl::*;
+    Ok(match (lhs, rhs) {
+        (Any, _) => Any,
+        (_, Any) => Any,
+        (F64, F64) => F64,
+        (I64, I64) => I64,
+        (Str, Str) => Str,
+        (F64, I64) => F64,
+        (I64, F64) => F64,
+        _ => return Err(()),
+    })
+}
+
+fn tc_binary_cmp<'src>(
+    lhs: &Expression<'src>,
+    rhs: &Expression<'src>,
+    ctx: &mut TypeCheckContext<'src>,
+    op: &str,
+) -> Result<TypeDecl, TypeCheckError> {
+    let lhs_ty = tc_expr(lhs, ctx)?;
+    let rhs_ty = tc_expr(rhs, ctx)?;
+    binary_cmp_type(&lhs_ty, &rhs_ty).map_err(|_e| {
+        TypeCheckError::new(format!(
+            "Operation {op} between incompatible type: {:?} and {:?}",
+            lhs_ty, rhs_ty
+        ))
+    })
+}
+
+fn binary_cmp_type(lhs: &TypeDecl, rhs: &TypeDecl) -> Result<TypeDecl, ()> {
+    use TypeDecl::*;
+    Ok(match (lhs, rhs) {
+        (Any, _) => Any,
+        (_, Any) => Any,
+        (F64, F64) => I64,
+        (I64, I64) => I64,
+        (Str, Str) => I64,
+        _ => return Err(()),
     })
 }

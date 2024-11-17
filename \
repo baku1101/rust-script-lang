@@ -237,11 +237,7 @@ impl<'src> FnDef<'src> {
 }
 
 impl<'src> UserFn<'src> {
-    pub fn new(
-        args: Vec<(&'src str, TypeDecl)>,
-        ret_type: TypeDecl,
-        stmts: Statements<'src>,
-    ) -> Self {
+    pub fn new(args: Vec<('src &str, TypeDecl)>, ret_type: TypeDecl, stmts: Statements) -> Self {
         Self {
             args,
             ret_type,
