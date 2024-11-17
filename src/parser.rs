@@ -68,7 +68,6 @@ fn fn_def_statement(i: &str) -> IResult<&str, Statement> {
     let (i, _) = space_delimited(tag("->"))(i)?;
     let (i, ret_type) = type_decl(i)?;
     let (i, stmts) = delimited(open_brace, statements, close_brace)(i)?;
-    println!("fn_def_statement: {:?}", i);
     Ok((
         i,
         Statement::FnDef {

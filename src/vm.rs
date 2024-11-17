@@ -32,12 +32,40 @@ impl<'src> FnDef<'src> {
             Self::Native(native_fn) => (native_fn.code)(args),
         }
     }
+
+    pub fn args(&self) -> Vec<(&'src str, TypeDecl)> {
+        match self {
+            Self::User(user_fn) => user_fn.args.clone(),
+            Self::Native(native_fn) => native_fn.args.clone(),
+        }
+    }
+
+    pub fn ret_type(&self) -> TypeDecl {
+        match self {
+            Self::User(user_fn) => user_fn.ret_type,
+            Self::Native(native_fn) => native_fn.ret_type,
+        }
+    }
 }
 
 pub struct UserFn<'src> {
     args: Vec<(&'src str, TypeDecl)>,
     ret_type: TypeDecl,
     stmts: Statements<'src>,
+}
+
+impl<'src> UserFn<'src> {
+    pub fn new(
+        args: Vec<(&'src str, TypeDecl)>,
+        ret_type: TypeDecl,
+        stmts: Statements<'src>,
+    ) -> Self {
+        Self {
+            args,
+            ret_type,
+            stmts,
+        }
+    }
 }
 
 pub struct NativeFn<'src> {

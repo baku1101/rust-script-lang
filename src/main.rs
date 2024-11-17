@@ -1,6 +1,7 @@
 use core::panic;
 use rust_script_lang::{
     parser::statements_finish,
+    type_checker::{type_check, TypeCheckContext},
     vm::{eval_statements, StackFrame},
 };
 
@@ -17,6 +18,11 @@ fn main() {
             return;
         }
     };
+
+    let mut tc_ctx = TypeCheckContext::new();
+    if let Err(err) = type_check(&parsed_statements, &mut tc_ctx) {
+        println!("Type check error: {:?}", err);
+    }
     let mut frame = StackFrame::new();
     eval_statements(&parsed_statements, &mut frame);
 }
