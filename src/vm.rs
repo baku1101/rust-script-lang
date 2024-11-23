@@ -14,6 +14,7 @@ pub enum FnDef<'src> {
 
 impl<'src> FnDef<'src> {
     fn call(&self, args: &[Value], frame: &StackFrame<'src>) -> Value {
+        println!("calling function");
         match self {
             Self::User(user_fn) => {
                 let mut new_frame = StackFrame::push_stack(frame);
