@@ -1,4 +1,5 @@
 use nom::Finish;
+use nom_locate::LocatedSpan;
 use rust_script_lang::evaluator::{eval_statements, StackFrame};
 use rust_script_lang::parser::statements;
 use rust_script_lang::typechecker::{type_check, TypeCheckContext};
@@ -7,7 +8,7 @@ use std::io::Read;
 fn main() {
     let mut buf = String::new();
     if std::io::stdin().read_to_string(&mut buf).is_ok() {
-        let parsed_statements = match statements(&buf).finish() {
+        let parsed_statements = match statements(LocatedSpan::new(&buf)).finish() {
             Ok((_, parsed_statements)) => parsed_statements,
             Err(e) => {
                 eprintln!("Parse error: {e:?}");
@@ -20,6 +21,8 @@ fn main() {
             eprintln!("Type check error: {err}");
             return;
         }
+
+        println!("Type check OK");
 
         let mut frame = StackFrame::new();
         eval_statements(&parsed_statements, &mut frame);
