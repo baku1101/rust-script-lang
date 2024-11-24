@@ -1,0 +1,4 @@
+var x : i64 = 2;
+var y : i64 = 3;
+var ans : i64 = if x < y {x} else {y};
+print(ans);

@@ -291,23 +291,45 @@ fn parens(i: Span) -> IResult<Span, Expression> {
     delimited(tag("("), expr, tag(")"))(i)
 }
 
-fn statements(i: Span) -> IResult<Span, Statements> {
-    let (i, stmts) = many0(statement)(i)?;
-    Ok((i, stmts))
+fn general_statement<'a>(is_last: bool) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Statement> {
+    let terminator = move |i| -> IResult<Span, ()> {
+        let mut semicolon = pair(tag(";"), multispace0);
+        if is_last {
+            Ok((opt(semicolon)(i)?.0, ()))
+        } else {
+            Ok((semicolon(i)?.0, ()))
+        }
+    };
+    move |i| {
+        alt((
+            var_def,
+            var_assign,
+            for_statement,
+            fn_def_statement,
+            terminated(return_statement, terminator),
+            terminated(break_statement, terminator),
+            terminated(continue_statement, terminator),
+            terminated(expr_statement, terminator),
+        ))(i)
+    }
 }
 
 fn statement(i: Span) -> IResult<Span, Statement> {
-    let terminator = move |x| char(';')(x);
-    alt((
-        var_def,
-        var_assign,
-        for_statement,
-        fn_def_statement,
-        terminated(return_statement, terminator),
-        terminated(break_statement, terminator),
-        terminated(continue_statement, terminator),
-        terminated(expr_statement, terminator),
-    ))(i)
+    general_statement(false)(i)
+}
+
+fn last_statement(i: Span) -> IResult<Span, Statement> {
+    general_statement(true)(i)
+}
+
+fn statements(i: Span) -> IResult<Span, Statements> {
+    let (i, mut stmts) = many0(statement)(i)?;
+    let (i, last) = opt(last_statement)(i)?;
+    let (i, _) = multispace0(i)?;
+    if let Some(last) = last {
+        stmts.push(last);
+    };
+    Ok((i, stmts))
 }
 
 pub fn statements_finish(i: Span) -> Result<Statements, nom::error::Error<Span>> {
