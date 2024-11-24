@@ -22,6 +22,8 @@ fn main() {
     let mut tc_ctx = TypeCheckContext::new();
     if let Err(err) = type_check(&parsed_statements, &mut tc_ctx) {
         println!("Type check error: {:?}", err);
+    } else {
+        println!("Type check OK!");
     }
     let mut frame = StackFrame::new();
     eval_statements(&parsed_statements, &mut frame);

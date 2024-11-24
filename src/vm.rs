@@ -1,15 +1,46 @@
 use crate::{
     ast::{Expression, Statement, Statements, TypeDecl},
-    value::{coerce_f64, coerce_i64, coerce_str, Value},
+    bytecode::{standard_functions, FnDef, Functions, UserFn},
+    value::Value,
 };
 use std::{collections::HashMap, ops::ControlFlow, vec};
 
 type Variables = HashMap<String, Value>;
-type Functions<'src> = HashMap<String, FnDef<'src>>;
 
-pub enum FnDef<'src> {
-    User(UserFn<'src>),
-    Native(NativeFn<'src>),
+#[derive(Default)]
+pub struct StackFrame<'src> {
+    vars: Variables,
+    funcs: Functions<'src>,
+    uplevel: Option<&'src StackFrame<'src>>,
+}
+
+impl<'src> StackFrame<'src> {
+    pub fn new() -> Self {
+        Self {
+            vars: Variables::new(),
+            funcs: standard_functions(),
+            uplevel: None,
+        }
+    }
+
+    fn get_fn(&self, name: &str) -> Option<&FnDef> {
+        let mut next_frame = Some(self);
+        while let Some(frame) = next_frame {
+            if let Some(func) = frame.funcs.get(name) {
+                return Some(func);
+            }
+            next_frame = frame.uplevel;
+        }
+        None
+    }
+
+    fn push_stack(uplevel: &'src Self) -> Self {
+        Self {
+            vars: Variables::new(),
+            funcs: Functions::new(),
+            uplevel: Some(uplevel),
+        }
+    }
 }
 
 impl<'src> FnDef<'src> {
@@ -46,169 +77,6 @@ impl<'src> FnDef<'src> {
             Self::Native(native_fn) => native_fn.ret_type,
         }
     }
-}
-
-pub struct UserFn<'src> {
-    args: Vec<(&'src str, TypeDecl)>,
-    ret_type: TypeDecl,
-    stmts: Statements<'src>,
-}
-
-impl<'src> UserFn<'src> {
-    pub fn new(
-        args: Vec<(&'src str, TypeDecl)>,
-        ret_type: TypeDecl,
-        stmts: Statements<'src>,
-    ) -> Self {
-        Self {
-            args,
-            ret_type,
-            stmts,
-        }
-    }
-}
-
-pub struct NativeFn<'src> {
-    args: Vec<(&'src str, TypeDecl)>,
-    ret_type: TypeDecl,
-    pub(crate) code: Box<dyn Fn(&[Value]) -> Value>,
-}
-
-fn unary_fn<'a>(f: fn(f64) -> f64) -> FnDef<'a> {
-    FnDef::Native(NativeFn {
-        args: vec![("arg", TypeDecl::F64)],
-        ret_type: TypeDecl::F64,
-        code: Box::new(move |args| {
-            Value::F64(f(coerce_f64(
-                args.into_iter().next().expect("functions missing argument"),
-            )))
-        }),
-    })
-}
-
-fn binary_fn<'a>(f: fn(f64, f64) -> f64) -> FnDef<'a> {
-    FnDef::Native(NativeFn {
-        args: vec![("lhs", TypeDecl::F64), ("rhs", TypeDecl::F64)],
-        ret_type: TypeDecl::F64,
-        code: Box::new(move |args| {
-            let mut args = args.into_iter();
-            let lhs = args.next().expect("function missing first argument");
-            let rhs = args.next().expect("function missing second argument");
-            Value::F64(f(coerce_f64(lhs), coerce_f64(rhs)))
-        }),
-    })
-}
-
-#[derive(Default)]
-pub struct StackFrame<'src> {
-    vars: Variables,
-    funcs: Functions<'src>,
-    uplevel: Option<&'src StackFrame<'src>>,
-}
-
-impl<'src> StackFrame<'src> {
-    pub fn new() -> Self {
-        let mut funcs = HashMap::new();
-        funcs.insert("sqrt".to_string(), unary_fn(f64::sqrt));
-        funcs.insert("sin".to_string(), unary_fn(f64::sin));
-        funcs.insert("cos".to_string(), unary_fn(f64::cos));
-        funcs.insert("tan".to_string(), unary_fn(f64::tan));
-        funcs.insert("asin".to_string(), unary_fn(f64::asin));
-        funcs.insert("acos".to_string(), unary_fn(f64::acos));
-        funcs.insert("atan".to_string(), unary_fn(f64::atan));
-        funcs.insert("atan2".to_string(), binary_fn(f64::atan2));
-        funcs.insert("pow".to_string(), binary_fn(f64::powf));
-        funcs.insert("exp".to_string(), unary_fn(f64::exp));
-        funcs.insert("log".to_string(), binary_fn(f64::log));
-        funcs.insert("log10".to_string(), unary_fn(f64::log10));
-        funcs.insert(
-            "print".to_string(),
-            FnDef::Native(NativeFn {
-                args: vec![("arg", TypeDecl::Any)],
-                ret_type: TypeDecl::I64,
-                code: Box::new(print),
-            }),
-        );
-        funcs.insert(
-            "dbg".to_string(),
-            FnDef::Native(NativeFn {
-                args: vec![("arg", TypeDecl::Any)],
-                ret_type: TypeDecl::I64,
-                code: Box::new(p_dbg),
-            }),
-        );
-        funcs.insert(
-            "i64".to_string(),
-            FnDef::Native(NativeFn {
-                args: vec![("arg", TypeDecl::Any)],
-                ret_type: TypeDecl::I64,
-                code: Box::new(|args| {
-                    Value::I64(coerce_i64(
-                        args.first().expect("functions missing argument"),
-                    ))
-                }),
-            }),
-        );
-        funcs.insert(
-            "f64".to_string(),
-            FnDef::Native(NativeFn {
-                args: vec![("arg", TypeDecl::Any)],
-                ret_type: TypeDecl::F64,
-                code: Box::new(|args| {
-                    Value::F64(coerce_f64(
-                        args.first().expect("functions missing argument"),
-                    ))
-                }),
-            }),
-        );
-        funcs.insert(
-            "str".to_string(),
-            FnDef::Native(NativeFn {
-                args: vec![("arg", TypeDecl::Any)],
-                ret_type: TypeDecl::Str,
-                code: Box::new(|args| {
-                    Value::Str(coerce_str(
-                        args.first().expect("functions missing argument"),
-                    ))
-                }),
-            }),
-        );
-
-        Self {
-            vars: Variables::new(),
-            funcs,
-            uplevel: None,
-        }
-    }
-
-    fn get_fn(&self, name: &str) -> Option<&FnDef> {
-        let mut next_frame = Some(self);
-        while let Some(frame) = next_frame {
-            if let Some(func) = frame.funcs.get(name) {
-                return Some(func);
-            }
-            next_frame = frame.uplevel;
-        }
-        None
-    }
-
-    fn push_stack(uplevel: &'src Self) -> Self {
-        Self {
-            vars: Variables::new(),
-            funcs: Functions::new(),
-            uplevel: Some(uplevel),
-        }
-    }
-}
-
-fn print(args: &[Value]) -> Value {
-    println!("print: {}", args[0]);
-    Value::I64(0)
-}
-
-fn p_dbg(args: &[Value]) -> Value {
-    println!("dbg: {:?}", args[0]);
-    Value::I64(0)
 }
 
 #[derive(Debug)]

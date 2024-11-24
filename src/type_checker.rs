@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Expression, Statement, TypeDecl};
-use crate::vm::{FnDef, UserFn};
+use crate::bytecode::{standard_functions, FnDef, UserFn};
 
 pub fn type_check<'src>(
     stmts: &Vec<Statement<'src>>,
@@ -121,7 +121,7 @@ impl<'src> TypeCheckContext<'src> {
     pub fn new() -> Self {
         Self {
             vars: HashMap::new(),
-            funcs: HashMap::new(),
+            funcs: standard_functions(),
             super_context: None,
         }
     }
