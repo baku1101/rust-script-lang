@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Expression, Statement, Statements, TypeDecl},
+    ast::{ExprEnum, Expression, Statement, Statements, TypeDecl},
     bytecode::{standard_functions, FnDef, Functions, UserFn},
     value::Value,
 };
@@ -66,7 +66,11 @@ impl<'src> FnDef<'src> {
 
     pub fn args(&self) -> Vec<(&'src str, TypeDecl)> {
         match self {
-            Self::User(user_fn) => user_fn.args.clone(),
+            Self::User(user_fn) => user_fn
+                .args
+                .iter()
+                .map(|(name, ty)| (name.into_fragment(), *ty))
+                .collect(),
             Self::Native(native_fn) => native_fn.args.clone(),
         }
     }
@@ -88,10 +92,15 @@ pub enum BreakResult {
 type EvalResult = ControlFlow<BreakResult, Value>;
 
 fn eval<'src>(expr: &Expression<'src>, frame: &mut StackFrame<'src>) -> EvalResult {
-    use Expression::*;
-    let res = match expr {
-        Ident("pi") => Value::F64(std::f64::consts::PI),
-        Ident(id) => frame.vars.get(*id).cloned().expect("variable not found"),
+    use ExprEnum::*;
+    let res = match &expr.expr {
+        Ident(id) => {
+            if id.into_fragment() == "pi" {
+                Value::F64(std::f64::consts::PI)
+            } else {
+                frame.vars.get(**id).cloned().expect("variable not found")
+            }
+        }
         NumLiteral(n) => Value::F64(*n),
         StrLiteral(s) => Value::Str(s.clone()),
         FnInvoke(name, args) => {
@@ -99,7 +108,7 @@ fn eval<'src>(expr: &Expression<'src>, frame: &mut StackFrame<'src>) -> EvalResu
             for arg in args {
                 arg_vals.push(eval(arg, frame)?);
             }
-            if let Some(func) = frame.get_fn(*name) {
+            if let Some(func) = frame.get_fn(**name) {
                 func.call(&arg_vals, frame)
             } else {
                 panic!("Unknown function: {:?}", name);
@@ -143,12 +152,12 @@ pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'s
             Statement::Expression(expr) => {
                 result = EvalResult::Continue(eval(expr, frame)?);
             }
-            Statement::VarDef(name, _, expr) => {
+            Statement::VarDef { name, expr, .. } => {
                 let value = eval(expr, frame)?;
                 frame.vars.insert(name.to_string(), value);
             }
-            Statement::VarAssign(name, expr) => {
-                if !frame.vars.contains_key(*name) {
+            Statement::VarAssign { name, expr, .. } => {
+                if !frame.vars.contains_key(**name) {
                     println!("variable not found: {:?}", name);
                 }
                 let value = eval(expr, frame)?;
@@ -159,6 +168,7 @@ pub fn eval_statements<'src>(stmts: &Statements<'src>, frame: &mut StackFrame<'s
                 start,
                 end,
                 stmts,
+                ..
             } => {
                 let start = eval(start, frame)?
                     .as_i64()

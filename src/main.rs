@@ -1,4 +1,5 @@
 use core::panic;
+use nom_locate::LocatedSpan;
 use rust_script_lang::{
     parser::statements_finish,
     type_checker::{type_check, TypeCheckContext},
@@ -11,7 +12,7 @@ fn main() {
     if !std::io::stdin().read_to_string(&mut buf).is_ok() {
         panic!("Failed to read stdin");
     }
-    let parsed_statements = match statements_finish(&buf) {
+    let parsed_statements = match statements_finish(LocatedSpan::new(&buf)) {
         Ok(parsed_statements) => parsed_statements,
         Err(e) => {
             eprintln!("Parsed error: {:?}", e);
@@ -21,7 +22,7 @@ fn main() {
 
     let mut tc_ctx = TypeCheckContext::new();
     if let Err(err) = type_check(&parsed_statements, &mut tc_ctx) {
-        println!("Type check error: {:?}", err);
+        println!("Type check error: {}", err);
     } else {
         println!("Type check OK!");
     }

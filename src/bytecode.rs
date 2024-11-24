@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{Statements, TypeDecl},
+    ast::{Span, Statements, TypeDecl},
     value::{coerce_f64, coerce_i64, coerce_str, Value},
 };
 
@@ -19,14 +19,14 @@ pub enum FnDef<'src> {
 }
 
 pub struct UserFn<'src> {
-    pub args: Vec<(&'src str, TypeDecl)>,
+    pub args: Vec<(Span<'src>, TypeDecl)>,
     pub ret_type: TypeDecl,
     pub stmts: Statements<'src>,
 }
 
 impl<'src> UserFn<'src> {
     pub fn new(
-        args: Vec<(&'src str, TypeDecl)>,
+        args: Vec<(Span<'src>, TypeDecl)>,
         ret_type: TypeDecl,
         stmts: Statements<'src>,
     ) -> Self {
